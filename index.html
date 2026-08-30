@@ -267,6 +267,12 @@
     </div>
 
     <div class="card">
+      <div class="card-label">Teams online</div>
+      <ul class="buzz-list" id="teams-list"></ul>
+      <p class="empty-note" id="teams-empty">No teams have joined yet — have them scan the QR code above.</p>
+    </div>
+
+    <div class="card">
       <div class="counter">
         Question <span id="q-num">1</span> of <span id="q-total">19</span>
         <span class="phase-badge phase-closed" id="phase-badge">buzzers closed</span>
@@ -387,6 +393,16 @@ async function getState() {
   }
 }
 
+async function getTeams() {
+  try {
+    const snap = await db.ref('teams').once('value');
+    return snap.exists() ? snap.val() : {};
+  } catch (e) {
+    console.error('Firebase read error', e);
+    return {};
+  }
+}
+
 async function setState(state) {
   try {
     await db.ref(STATE_KEY).set(state);
@@ -425,7 +441,20 @@ function copyJoinLink() {
 
 async function renderHost() {
   const state = await getState();
+  const teams = await getTeams();
   const item = QUESTIONS[state.questionIndex];
+
+  const teamsList = document.getElementById('teams-list');
+  const teamsEmpty = document.getElementById('teams-empty');
+  const teamEntries = Object.values(teams).sort((a, b) => a.joinedAt - b.joinedAt);
+  teamsEmpty.classList.toggle('hidden', teamEntries.length > 0);
+  teamsList.innerHTML = '';
+  teamEntries.forEach((t, idx) => {
+    const li = document.createElement('li');
+    li.className = 'buzz-item';
+    li.innerHTML = `<span class="buzz-rank">${idx + 1}</span><span class="buzz-name">${escapeHtml(t.name)}</span>`;
+    teamsList.appendChild(li);
+  });
 
   document.getElementById('q-num').textContent = state.questionIndex + 1;
   document.getElementById('q-total').textContent = QUESTIONS.length;
@@ -542,6 +571,7 @@ async function nextQuestion() {
 
 /* ============== JOIN / PLAYER ============== */
 let myTeam = null;
+let myTeamRef = null;
 let playerPollTimer = null;
 
 function initJoin() {
@@ -558,6 +588,17 @@ function joinGame() {
   document.getElementById('my-team-tag').textContent = 'Playing as ' + myTeam;
   document.getElementById('join-name-screen').classList.add('hidden');
   document.getElementById('join-buzz-screen').classList.remove('hidden');
+
+  // Register this team's presence so the host sees them join immediately,
+  // and auto-remove them if their tab disconnects.
+  try {
+    myTeamRef = db.ref('teams').push();
+    myTeamRef.set({ name: myTeam, joinedAt: Date.now() });
+    myTeamRef.onDisconnect().remove();
+  } catch (e) {
+    console.error('Presence error', e);
+  }
+
   renderPlayer();
   playerPollTimer = setInterval(renderPlayer, POLL_MS);
 }
