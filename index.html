@@ -473,7 +473,9 @@ async function renderHost() {
   badge.className = 'phase-badge phase-' + state.phase;
   badge.textContent = state.phase === 'closed' ? 'buzzers closed' : state.phase === 'open' ? 'buzzers open' : 'answer revealed';
 
-  document.getElementById('open-btn').disabled = state.phase !== 'closed';
+  // "Open buzzers" is always clickable — re-opening simply clears any
+  // stray buzzes and starts the round fresh, regardless of current phase.
+  document.getElementById('open-btn').disabled = false;
   document.getElementById('reveal-btn').classList.toggle('hidden', state.phase !== 'open' || state.buzzes.length === 0);
   document.getElementById('next-btn').classList.toggle('hidden', state.phase !== 'revealed');
 
