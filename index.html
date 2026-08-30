@@ -386,7 +386,16 @@ function defaultState() {
 async function getState() {
   try {
     const snap = await db.ref(STATE_KEY).once('value');
-    return snap.exists() ? snap.val() : defaultState();
+    const val = snap.exists() ? snap.val() : {};
+    // Firebase drops empty arrays/objects entirely on write, so rebuild
+    // any missing fields here rather than trusting the raw snapshot.
+    return {
+      questionIndex: typeof val.questionIndex === 'number' ? val.questionIndex : 0,
+      phase: val.phase || 'closed',
+      buzzes: Array.isArray(val.buzzes) ? val.buzzes : [],
+      eliminated: Array.isArray(val.eliminated) ? val.eliminated : [],
+      scores: (val.scores && typeof val.scores === 'object') ? val.scores : {}
+    };
   } catch (e) {
     console.error('Firebase read error', e);
     return defaultState();
@@ -428,6 +437,10 @@ function initHost() {
   document.getElementById('host-view').classList.remove('hidden');
   renderQrCode();
   renderHost();
+  // Real-time listeners: fire instantly on change, instead of waiting
+  // for the next poll tick.
+  db.ref(STATE_KEY).on('value', () => renderHost());
+  db.ref('teams').on('value', () => renderHost());
   hostPollTimer = setInterval(renderHost, POLL_MS);
 }
 
@@ -602,6 +615,9 @@ function joinGame() {
   }
 
   renderPlayer();
+  // Real-time listener: updates the buzz button the instant the host
+  // opens/closes/reveals, instead of waiting for the next poll tick.
+  db.ref(STATE_KEY).on('value', () => renderPlayer());
   playerPollTimer = setInterval(renderPlayer, POLL_MS);
 }
 
