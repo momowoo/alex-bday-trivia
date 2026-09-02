@@ -299,6 +299,12 @@
       <div class="score-grid" id="score-grid"></div>
       <p class="empty-note" id="score-empty">No teams have scored yet.</p>
     </div>
+
+    <div class="card">
+      <div class="card-label">Danger zone</div>
+      <p class="empty-note" style="margin-bottom:14px;">Use this between test runs to wipe every team and score and jump back to question 1 — handy right before the real game starts.</p>
+      <button class="btn btn-coral" onclick="resetEverything()">Reset everything (new game)</button>
+    </div>
   </div>
 
   <!-- ================= JOIN VIEW ================= -->
@@ -340,7 +346,18 @@ const QUESTIONS = [
   { q: "[Random trivia] Montgomery Township, NJ is named after whom?", options: ["Robert Montgomery (actor)", "Richard Montgomery (Revolutionary War general)", "Montgomery County, PA", "L.M. Montgomery (author)"], correct: 1, fact: "Named for General Richard Montgomery when the township was organized in 1798." },
   { q: "[Random trivia] In Dec. 2023, a bull escaped and wandered onto NJ Transit tracks at Newark Penn Station, delaying trains. What was it later nicknamed?", options: ["Ferdinand", "Bullwinkle", "Ricardo", "Otis"], correct: 2, fact: "Ricardo — NJ Transit even released a commemorative plushie." },
   { q: "[Random trivia] Michigan's fight song 'The Victors' was written in 1898 after a win over which rival?", options: ["Ohio State", "University of Chicago", "Michigan State", "Notre Dame"], correct: 1, fact: "A student wrote it on the spot after Michigan beat Chicago 12–11." },
-  { q: "[Random trivia] What year did Facebook's parent company officially rebrand to 'Meta'?", options: ["2019", "2020", "2021", "2022"], correct: 2, fact: "October 2021." }
+  { q: "[Random trivia] What year did Facebook's parent company officially rebrand to 'Meta'?", options: ["2019", "2020", "2021", "2022"], correct: 2, fact: "October 2021." },
+  { q: "[Random trivia] Kendrick Lamar's album 'DAMN.' made history in 2018 by winning which award — the first non-jazz, non-classical album ever to do so?", options: ["Grammy Album of the Year", "Pulitzer Prize for Music", "Mercury Prize", "MTV VMA Album of the Year"], correct: 1, fact: "The Pulitzer board called it a 'virtuosic song collection unified by its vernacular authenticity and rhythmic dynamism.'" },
+  { q: "What movie inspired the quirky name of Princeton's beloved ice cream shop, The Bent Spoon?", options: ["Inception", "The Matrix", "Back to the Future", "Groundhog Day"], correct: 1, fact: "It's a nod to the spoon-bending scene — Thomas Sweet fans, don't @ us." },
+  { q: "[Random trivia] What record does James Cameron's 'Avatar' (2009) still hold?", options: ["Highest-grossing film of all time", "Most Oscar wins ever", "First film shot entirely underwater", "Longest theatrical release ever"], correct: 0, fact: "It's grossed roughly $2.9 billion worldwide, ahead of Avengers: Endgame." },
+  { q: "[Random trivia] How many total cameras does the Meta Quest 3 headset have?", options: ["4", "5", "6", "8"], correct: 2, fact: "Two 4MP RGB color cameras plus four IR tracking cameras." },
+  { q: "Name this iconic piece of furniture: designed in 1956 by Charles and Ray Eames for Herman Miller, with molded plywood shells, a swiveling base, and a leather cushion.", options: ["Aeron Chair", "Eames Lounge Chair", "Noguchi Table", "Barcelona Chair"], correct: 1, fact: "The Eames Lounge Chair and Ottoman — a mid-century design icon." },
+  { q: "[Random trivia] Shanghainese belongs to which group of Chinese dialects?", options: ["Yue (Cantonese group)", "Wu", "Min", "Hakka"], correct: 1, fact: "It's the largest single form of Wu Chinese, with around 14 million speakers, and isn't mutually intelligible with Mandarin." },
+  { q: "How many siblings do I have, and what are they?", options: ["One younger brother", "One older sister and one younger brother", "One older brother and one older sister", "No siblings"], correct: 2, fact: "An older brother and an older sister." },
+  { q: "Who was my K-pop bias in high school?", options: ["T.O.P", "G-Dragon", "Taeyang", "Daesung"], correct: 1, fact: "G-Dragon, of BIGBANG." },
+  { q: "What is my favorite candy?", options: ["Gummy bears", "Sour Patch Kids", "Chocolate", "Skittles"], correct: 2, fact: "Chocolate — no contest." },
+  { q: "[Random trivia] Michael Phelps holds the record for most Olympic gold medals (23). How many total Olympic medals does he have?", options: ["18", "23", "28", "31"], correct: 2, fact: "28 total medals — the most decorated Olympian ever, across five Olympic Games." },
+  { q: "[Random trivia] Mariah Carey is famous for a vocal range spanning how many octaves?", options: ["3", "4", "5", "7"], correct: 2, fact: "About five octaves, including her signature whistle register." }
 ];
 const LETTERS = ['A','B','C','D','E'];
 const STATE_KEY = 'session';
@@ -412,6 +429,36 @@ async function getTeams() {
   }
 }
 
+async function removeTeam(key, name) {
+  if (!confirm(`Remove "${name}" from the game? They'll need to rejoin to play again.`)) return;
+  try {
+    await db.ref('teams/' + key).remove();
+  } catch (e) {
+    console.error('Firebase write error', e);
+  }
+  // Also strip them out of the current round/scoreboard so no stale
+  // references linger for a team that's no longer playing.
+  const state = await getState();
+  state.buzzes = state.buzzes.filter(b => b.team !== name);
+  state.eliminated = state.eliminated.filter(t => t !== name);
+  if (state.scores && Object.prototype.hasOwnProperty.call(state.scores, name)) {
+    delete state.scores[name];
+  }
+  await setState(state);
+  renderHost();
+}
+
+async function resetEverything() {
+  if (!confirm('Reset the whole game? This clears every team, all scores, and returns to question 1. This cannot be undone.')) return;
+  try {
+    await db.ref(STATE_KEY).set(defaultState());
+    await db.ref('teams').remove();
+  } catch (e) {
+    console.error('Firebase write error', e);
+  }
+  renderHost();
+}
+
 async function setState(state) {
   try {
     await db.ref(STATE_KEY).set(state);
@@ -459,13 +506,17 @@ async function renderHost() {
 
   const teamsList = document.getElementById('teams-list');
   const teamsEmpty = document.getElementById('teams-empty');
-  const teamEntries = Object.values(teams).sort((a, b) => a.joinedAt - b.joinedAt);
+  const teamEntries = Object.entries(teams).sort((a, b) => a[1].joinedAt - b[1].joinedAt);
   teamsEmpty.classList.toggle('hidden', teamEntries.length > 0);
   teamsList.innerHTML = '';
-  teamEntries.forEach((t, idx) => {
+  teamEntries.forEach(([key, t], idx) => {
     const li = document.createElement('li');
     li.className = 'buzz-item';
-    li.innerHTML = `<span class="buzz-rank">${idx + 1}</span><span class="buzz-name">${escapeHtml(t.name)}</span>`;
+    li.innerHTML = `
+      <span class="buzz-rank">${idx + 1}</span>
+      <span class="buzz-name">${escapeHtml(t.name)}</span>
+      <button class="btn btn-coral" style="padding:6px 10px;font-size:12px;" onclick="removeTeam('${escapeAttr(key)}','${escapeAttr(t.name)}')">Remove</button>
+    `;
     teamsList.appendChild(li);
   });
 
