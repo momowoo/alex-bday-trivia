@@ -281,8 +281,7 @@
       <div class="options" id="q-options"></div>
 
       <div class="btn-row">
-        <button class="btn btn-primary" id="open-btn" onclick="openBuzzers()">Open buzzers</button>
-        <button class="btn btn-ghost" id="reset-btn" onclick="resetRound()">Reset round</button>
+        <button class="btn btn-ghost" id="reset-btn" onclick="resetRound()">Reopen buzzers (redo this question)</button>
         <button class="btn btn-teal hidden" id="reveal-btn" onclick="revealAnswer()">Reveal answer</button>
         <button class="btn btn-primary hidden" id="next-btn" onclick="nextQuestion()">Next question →</button>
       </div>
@@ -397,7 +396,9 @@ function renderQrCode() {
 }
 
 function defaultState() {
-  return { questionIndex: 0, phase: 'closed', buzzes: [], eliminated: [], scores: {} };
+  // Buzzers start open immediately on question 1 — there's no separate
+  // "open buzzers" step, it happens automatically on reset / next question.
+  return { questionIndex: 0, phase: 'open', buzzes: [], eliminated: [], scores: {} };
 }
 
 async function getState() {
@@ -537,9 +538,6 @@ async function renderHost() {
   badge.className = 'phase-badge phase-' + state.phase;
   badge.textContent = state.phase === 'closed' ? 'buzzers closed' : state.phase === 'open' ? 'buzzers open' : 'answer revealed';
 
-  // "Open buzzers" is always clickable — re-opening simply clears any
-  // stray buzzes and starts the round fresh, regardless of current phase.
-  document.getElementById('open-btn').disabled = false;
   document.getElementById('reveal-btn').classList.toggle('hidden', state.phase !== 'open' || state.buzzes.length === 0);
   document.getElementById('next-btn').classList.toggle('hidden', state.phase !== 'revealed');
 
@@ -582,18 +580,11 @@ async function renderHost() {
   });
 }
 
-async function openBuzzers() {
+async function resetRound() {
+  // Re-opens buzzers for the *same* question — clears buzzes/eliminated
+  // so teams can try again, without advancing to a new question.
   const state = await getState();
   state.phase = 'open';
-  state.buzzes = [];
-  state.eliminated = [];
-  await setState(state);
-  renderHost();
-}
-
-async function resetRound() {
-  const state = await getState();
-  state.phase = 'closed';
   state.buzzes = [];
   state.eliminated = [];
   await setState(state);
@@ -611,6 +602,7 @@ async function markCorrect(team) {
 async function markWrong(team) {
   const state = await getState();
   if (!state.eliminated.includes(team)) state.eliminated.push(team);
+  state.scores[team] = (state.scores[team] || 0) - 2;
   // if everyone who buzzed is now eliminated, auto-reveal so host can move on
   const remaining = state.buzzes.filter(b => !state.eliminated.includes(b.team));
   if (remaining.length === 0) state.phase = 'revealed';
@@ -626,9 +618,11 @@ async function revealAnswer() {
 }
 
 async function nextQuestion() {
+  // Moving to a new question automatically opens buzzers for it —
+  // there's no separate "open buzzers" step.
   const state = await getState();
   state.questionIndex = (state.questionIndex + 1) % QUESTIONS.length;
-  state.phase = 'closed';
+  state.phase = 'open';
   state.buzzes = [];
   state.eliminated = [];
   await setState(state);
